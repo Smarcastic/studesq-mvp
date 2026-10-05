@@ -1,153 +1,919 @@
-// Studesq Database Schema
-// SQLite for MVP - easy local development, no external dependencies
-
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
 }
 
-// User roles enum
-enum UserRole {
-  STUDENT
-  PARENT
-  ADMIN
-}
-
-// Achievement types enum
-enum AchievementType {
-  ACADEMIC
-  EXTRACURRICULAR
-  CERTIFICATION
-  COMPETITION
-  PROJECT
-  OTHER
-}
-
-// =============================================================================
-// Core Models
-// =============================================================================
+// ===== NextAuth Models =====
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  role      UserRole @default(STUDENT)
-  
-  // OAuth fields (null for mock auth users)
-  googleId  String?  @unique
-  
-  // Metadata
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          String    @default("student") // "student" | "parent"
+
+  // Profile fields
+  bio              String?
+  school           String?
+  grade            String?
+  graduationYear   Int?
+  location         String?
+  interests        String? // JSON string array
+  careerAspirations String?
+  languages        String? // JSON string array
+  skills           String? // JSON string array
+  academicGoals    String?
+  privacyLevel     String  @default("private") // "private" | "parents_only"
+
+  // Public profile
+  username         String?  @unique
+  profilePublic    Boolean  @default(false)
+  profileSections  String?  // JSON: which sections to show publicly
+  profileViews     Int      @default(0)
+  profileShares    Int      @default(0)
+
+  // XP & Level system
+  xp               Int      @default(0)
+  level            String   @default("Explorer") // "Explorer" | "Achiever" | "Elite" | "Scholar" | "Titan"
+  streakFreezes    Int      @default(3) // remaining streak freeze tokens
+  lastStreakFreeze DateTime?
+
+  // Trust & Verification system
+  trustScore                Int @default(0)
+  verifiedAchievementsCount Int @default(0)
+
+  // Theme preference
+  theme            String   @default("light") // "light" | "dark" | "cosmic"
+
+  accounts      Account[]
+  sessions      Session[]
+
+  // Student relations
+  achievements    Achievement[]
+  flashcardDecks  FlashcardDeck[]
+  notes           Note[]
+  assignments     Assignment[]
+  goals           Goal[]
+  grades          Grade[]
+  studySessions   StudySession[]
+  readingItems    ReadingItem[]
+  documents       Document[]
+  exams           Exam[]
+  applications    CollegeApplication[]
+  recommendations RecommendationLetter[]
+  moodEntries     MoodEntry[]
+  habits          Habit[]
+  aiUsageLogs     AIUsageLog[]
+  xpEvents        XPEvent[]
+
+  // Parent-student link
+  parentLinks ParentLink[] @relation("StudentParentLinks")
+  childLinks  ParentLink[] @relation("ParentChildLinks")
+
+  // Social relations
+  friendshipsRequested Friendship[]         @relation("FriendshipRequester")
+  friendshipsReceived  Friendship[]         @relation("FriendshipAddressee")
+  conversationMembers  ConversationMember[]
+  messagesSent         Message[]            @relation("MessageSender")
+  messageReactions     MessageReaction[]    @relation("ReactionUser")
+  groupMembers         GroupMember[]
+
+  // Online status
+  lastSeenAt DateTime?
+
+  // Marketplace
+  marketplaceSaves        MarketplaceSave[]
+  marketplaceApplications MarketplaceApplication[]
+  marketplaceReviews      MarketplaceReview[]
+
+  // Notifications
+  notifications Notification[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
-  // Relations
-  studentProfile StudentProfile?
-  parentLinks    ParentLink[]    @relation("ParentUser")
-  
-  @@index([email])
-  @@index([googleId])
 }
 
-model StudentProfile {
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ===== Achievement Vault =====
+
+model Achievement {
   id          String   @id @default(cuid())
-  userId      String   @unique
+  userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // Display information
-  displayName String
-  bio         String?
-  avatarUrl   String?
-  
-  // Academic information
-  school      String?
-  grade       String?
-  dob         DateTime?
-  
-  // Early founder status
-  earlyFounder Boolean @default(false)
-  
-  // Metadata
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  // Relations
-  achievements Achievement[]
-  parentLinks  ParentLink[]   @relation("StudentProfile")
-  
+
+  title       String
+  description String?
+  category    String // "academic" | "competition" | "certificate" | "extracurricular" | "community_service" | "sports" | "creative" | "leadership" | "other"
+  date        DateTime
+  issuingOrg  String?
+  tags        String? // JSON string array
+  fileUrl     String?
+  fileName    String?
+  isHighlight Boolean  @default(false)
+
+  // Verification & Trust Engine
+  verificationStatus    String  @default("SELF_REPORTED") // "SELF_REPORTED" | "DOCUMENT_UPLOADED" | "UNDER_REVIEW" | "VERIFIED" | "REJECTED"
+  verificationLevel     Int     @default(0) // 0=Self Reported, 1=Document Uploaded, 2=Verified, 3=Institution Confirmed
+  trustScoreImpact      Int     @default(1) // Points this achievement contributes to user trustScore
+  proofDocumentUrl      String? // Uploaded proof file URL
+  proofDocumentType     String  @default("NONE") // "NONE" | "IMAGE" | "PDF" | "LINK"
+  externalLink          String? // URL to external proof (competition site, certificate page)
+  verifiedByUserId      String? // Admin/verifier who approved
+  verifiedAt            DateTime?
+  verificationNotes     String? // Admin notes on verification decision
+  isPublic              Boolean @default(true) // Visibility on public profile
+  impactMetrics         String? // JSON: e.g., { "peopleImpacted": 50, "hoursSpent": 120 }
+
+  // Audit trail
+  auditLogs AchievementAuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([category])
+  @@index([date])
+  @@index([verificationStatus])
+  @@index([verificationLevel])
+}
+
+// ===== Achievement Audit Log =====
+
+model AchievementAuditLog {
+  id            String   @id @default(cuid())
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  actionType    String // "CREATED" | "UPDATED" | "DOCUMENT_UPLOADED" | "SUBMITTED_FOR_REVIEW" | "VERIFIED" | "REJECTED" | "VISIBILITY_CHANGED" | "DELETED"
+  performedBy   String // userId of who performed the action
+  notes         String? // Additional context
+
+  createdAt DateTime @default(now())
+
+  @@index([achievementId])
+  @@index([performedBy])
+}
+
+// ===== Flashcard System =====
+
+model FlashcardDeck {
+  id          String @id @default(cuid())
+  userId      String
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  subject     String?
+  color       String?
+
+  cards Flashcard[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([userId])
 }
 
-model Achievement {
-  id          String          @id @default(cuid())
-  studentId   String
-  student     StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  
-  // Achievement details
+model Flashcard {
+  id     String        @id @default(cuid())
+  deckId String
+  deck   FlashcardDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  front String
+  back  String
+  hints String?
+
+  // Spaced repetition
+  difficulty  Int      @default(3) // 1-5
+  easeFactor  Float    @default(2.5)
+  interval    Int      @default(0) // Days until next review
+  repetitions Int      @default(0)
+  nextReview  DateTime @default(now())
+  lastReview  DateTime?
+  reviewCount Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([deckId])
+  @@index([nextReview])
+}
+
+// ===== Quick Notes =====
+
+model Note {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title      String  @default("Untitled")
+  content    String? // Tiptap JSON content
+  tags       String? // JSON string array
+  isPinned   Boolean @default(false)
+  isArchived Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isPinned])
+}
+
+// ===== Assignment Tracker =====
+
+model Assignment {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   title       String
-  description String
-  type        AchievementType @default(OTHER)
-  
-  // Date of achievement
-  date        DateTime
-  
-  // Certificate/proof document
-  certificatePath String?
-  
-  // Metadata
+  description String?
+  subject     String?
+  dueDate     DateTime?
+  priority    String   @default("medium") // "low" | "medium" | "high" | "urgent"
+  status      String   @default("todo") // "todo" | "in_progress" | "done"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([dueDate])
+  @@index([status])
+}
+
+// ===== Goal Tracker =====
+
+model Goal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  category    String? // "academic" | "extracurricular" | "personal"
+  targetDate  DateTime?
+  progress    Int     @default(0) // 0-100
+  status      String  @default("active") // "active" | "completed" | "archived"
+  milestones  String? // JSON array of { title, completed }
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ===== Grade & GPA Calculator =====
+
+model Grade {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  subject    String
+  courseName String?
+  grade      String // Letter grade or percentage
+  credits    Float   @default(1.0)
+  weight     String  @default("regular") // "regular" | "honors" | "ap" | "ib"
+  semester   String? // "Fall 2025", "Spring 2026", etc.
+  year       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([semester])
+}
+
+// ===== Study Sessions (Timer tracking) =====
+
+model StudySession {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  mode     String // "pomodoro" | "deep_focus" | "stopwatch"
+  duration Int // Total seconds
+  subject  String?
+  notes    String?
+  mood     String? // "great" | "good" | "okay" | "tired" | "stressed"
+
+  // Focus tracking
+  focusScore     Int?    // 0-100 calculated focus quality
+  distractions   Int     @default(0) // number of tab-switches / pauses
+  reflection     String? // post-session reflection note
+  goalMinutes    Int?    // session goal in minutes
+
+  completedAt DateTime @default(now())
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@index([studentId])
+
+  @@index([userId])
+  @@index([completedAt])
+}
+
+// ===== Exam Countdown =====
+
+model Exam {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  subject   String
+  date      DateTime
+  location  String?
+  notes     String?
+  color     String? // hex color per subject
+
+  topics    RevisionTopic[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
   @@index([date])
 }
+
+model RevisionTopic {
+  id         String  @id @default(cuid())
+  examId     String
+  exam       Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  topic      String
+  isComplete Boolean @default(false)
+
+  @@index([examId])
+}
+
+// ===== College Applications =====
+
+model CollegeApplication {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  collegeName     String
+  programName     String?
+  applicationUrl  String?
+  deadline        DateTime?
+  status          String   @default("NOT_STARTED") // "NOT_STARTED" | "IN_PROGRESS" | "SUBMITTED" | "INTERVIEW" | "ACCEPTED" | "WAITLISTED" | "REJECTED" | "DEFERRED"
+  notes           String?
+  isEarlyDecision Boolean  @default(false)
+
+  essays          CollegeEssay[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model CollegeEssay {
+  id            String             @id @default(cuid())
+  applicationId String
+  application   CollegeApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  prompt    String
+  content   String   @default("")
+  wordLimit Int?
+  wordCount Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([applicationId])
+}
+
+model RecommendationLetter {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  teacherName String
+  subject     String?
+  requested   Boolean  @default(false)
+  confirmed   Boolean  @default(false)
+  submitted   Boolean  @default(false)
+  deadline    DateTime?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ===== Wellness =====
+
+model MoodEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  mood      String // "THRIVING" | "GOOD" | "OKAY" | "STRUGGLING" | "BURNT_OUT"
+  note      String?
+  date      DateTime @default(now())
+
+  @@index([userId])
+  @@index([date])
+}
+
+// ===== Habits =====
+
+model Habit {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title     String
+  emoji     String?
+  logs      HabitLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model HabitLog {
+  id      String   @id @default(cuid())
+  habitId String
+  habit   Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  date    DateTime // date only — store as midnight UTC
+  done    Boolean  @default(true)
+
+  @@unique([habitId, date])
+  @@index([habitId])
+}
+
+// ===== AI Usage Tracking =====
+
+model AIUsageLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  feature   String // "flashcards-from-note" | "explain" | "assignment-feedback" | "verify-achievement"
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ===== Reading List =====
+
+model ReadingItem {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title      String
+  author     String?
+  isbn       String?
+  genre      String?
+  coverUrl   String?
+  pageCount  Int?
+  pagesRead  Int     @default(0)
+  status     String  @default("to_read") // "to_read" | "reading" | "completed" | "dnf"
+  rating     Int? // 1-5
+  notes      String?
+  quotes     String? // JSON array
+  startDate  DateTime?
+  finishDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ===== Document Library =====
+
+model Document {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title    String
+  fileName String
+  fileUrl  String
+  fileSize Int?
+  fileType String?
+  category String? // "transcript" | "certificate" | "essay" | "other"
+  tags     String? // JSON string array
+  folder   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([folder])
+}
+
+// ===== Parent-Student Link =====
 
 model ParentLink {
-  id           String         @id @default(cuid())
-  studentId    String
-  student      StudentProfile @relation("StudentProfile", fields: [studentId], references: [id], onDelete: Cascade)
-  
-  parentUserId String
-  parent       User           @relation("ParentUser", fields: [parentUserId], references: [id], onDelete: Cascade)
-  
-  // Verification status
-  verified     Boolean        @default(true)
-  
-  // Metadata
-  createdAt    DateTime       @default(now())
-  
-  @@unique([studentId, parentUserId])
-  @@index([studentId])
-  @@index([parentUserId])
-}
+  id        String @id @default(cuid())
+  studentId String
+  parentId  String
+  student   User   @relation("StudentParentLinks", fields: [studentId], references: [id], onDelete: Cascade)
+  parent    User   @relation("ParentChildLinks", fields: [parentId], references: [id], onDelete: Cascade)
 
-model Opportunity {
-  id          String   @id @default(cuid())
-  
-  // Opportunity details
-  title       String
-  description String
-  provider    String
-  externalUrl String
-  
-  // Date/deadline
-  date        DateTime
-  
-  // Metadata
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  @@index([date])
-}
+  status     String  @default("pending") // "pending" | "active" | "revoked"
+  verifyCode String?
 
-// Optional: Waitlist signups
-model WaitlistSignup {
-  id        String   @id @default(cuid())
-  email     String   @unique
   createdAt DateTime @default(now())
-  
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, parentId])
+  @@index([studentId])
+  @@index([parentId])
+}
+
+// ===== Waitlist =====
+
+model WaitlistEntry {
+  id             String  @id @default(cuid())
+  email          String  @unique
+  name           String?
+  referralSource String?
+
+  createdAt DateTime @default(now())
+
   @@index([email])
+}
+
+// ===== Password Reset Tokens =====
+
+model PasswordResetToken {
+  id      String   @id @default(cuid())
+  email   String
+  token   String   @unique
+  expires DateTime
+
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([token])
+}
+
+// ===== Friendship System =====
+
+model Friendship {
+  id          String @id @default(cuid())
+  requesterId String
+  addresseeId String
+  requester   User   @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee   User   @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  status      String @default("pending") // "pending" | "accepted" | "rejected" | "blocked"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([requesterId, addresseeId])
+  @@index([requesterId])
+  @@index([addresseeId])
+  @@index([status])
+}
+
+// ===== Chat System =====
+
+model Conversation {
+  id        String  @id @default(cuid())
+  type      String  @default("dm") // "dm" | "group"
+  name      String?
+  avatarUrl String?
+  createdBy String?
+
+  members  ConversationMember[]
+  messages Message[]
+
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([lastMessageAt])
+}
+
+model ConversationMember {
+  id             String       @id @default(cuid())
+  conversationId String
+  userId         String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       @default("member") // "member" | "admin" | "owner"
+  nickname       String?
+  lastReadAt     DateTime?
+  isTyping       Boolean      @default(false)
+  typingAt       DateTime?
+  mutedUntil     DateTime?
+  joinedAt       DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([conversationId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  content   String?
+  type      String  @default("text") // "text" | "image" | "poll" | "quiz" | "flashcard_share" | "pomodoro_invite" | "system"
+  metadata  String? // JSON for polls, quizzes, flashcard shares, etc.
+  replyToId String?
+  isEdited  Boolean @default(false)
+  isDeleted Boolean @default(false)
+  isPinned  Boolean @default(false)
+
+  reactions MessageReaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@index([replyToId])
+}
+
+model MessageReaction {
+  id        String  @id @default(cuid())
+  messageId String
+  userId    String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User    @relation("ReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+// ===== Group System =====
+
+model Group {
+  id             String  @id @default(cuid())
+  name           String
+  description    String?
+  type           String  @default("custom") // "school" | "class" | "study" | "custom"
+  school         String?
+  avatarUrl      String?
+  inviteCode     String? @unique
+  isPublic       Boolean @default(false)
+  maxMembers     Int     @default(100)
+  createdBy      String
+  conversationId String? // linked group chat
+
+  members       GroupMember[]
+  announcements GroupAnnouncement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([school])
+  @@index([type])
+  @@index([inviteCode])
+  @@index([createdBy])
+}
+
+model GroupMember {
+  id      String @id @default(cuid())
+  groupId String
+  userId  String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    String @default("member") // "member" | "moderator" | "admin" | "owner"
+
+  joinedAt DateTime @default(now())
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+model GroupAnnouncement {
+  id       String @id @default(cuid())
+  groupId  String
+  authorId String
+  group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  title   String
+  content String
+  pinned  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([groupId, createdAt])
+}
+
+// ===== XP Event Log =====
+
+model XPEvent {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  action String  // "study_session" | "achievement_added" | "streak_day" | "goal_completed" | "habit_completed" | "flashcard_review" | "reading_finished"
+  xp     Int     // Amount of XP earned
+  meta   String? // JSON metadata about the event
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ===== Marketplace =====
+
+model MarketplaceEvent {
+  id           String @id @default(cuid())
+  title        String
+  slug         String @unique
+  // "MUN" | "OLYMPIAD" | "SPORTS" | "HACKATHON" | "RESEARCH" | "ARTS" | "QUIZ" | "PROGRAM" | "SCHOLARSHIP" | "INTERNSHIP" | "EXCHANGE" | "OTHER"
+  category     String
+  organizerName String
+  // "SCHOOL" | "COLLEGE" | "NGO" | "GOVERNMENT" | "PRIVATE"
+  organizerType String @default("PRIVATE")
+
+  description     String
+  longDescription String?
+  coverImageUrl   String?
+  websiteUrl      String?
+  registrationUrl String?
+
+  city    String?
+  state   String?
+  country String  @default("India")
+
+  isOnline Boolean @default(false)
+  isHybrid Boolean @default(false)
+
+  eventStartDate       DateTime?
+  eventEndDate         DateTime?
+  registrationDeadline DateTime?
+
+  fee                 Int?     // in INR, null = free
+  feeWaiversAvailable Boolean @default(false)
+
+  minGrade       Int?    // 1-12, 13=UG, 14=PG
+  maxGrade       Int?
+  minAge         Int?
+  maxAge         Int?
+  eligibleBoards String? // JSON array: ["CBSE","ICSE","IB","STATE","ANY"]
+
+  // "SOLO" | "TEAM" | "BOTH"
+  teamSize    String @default("BOTH")
+  teamMinSize Int?
+  teamMaxSize Int?
+
+  // "BEGINNER" | "INTERMEDIATE" | "ADVANCED" | "OPEN"
+  difficulty String @default("OPEN")
+
+  tags             String? // JSON array
+  prizePool        Int?    // in INR
+  awardsDescription String?
+  participantCount  Int?
+
+  isVerified Boolean @default(false)
+  isFeatured Boolean @default(false)
+  isRecurring Boolean @default(false)
+  recurringFrequency String? // "annual" | "biannual" | "monthly"
+
+  submittedBy String? // userId
+  // "PENDING" | "APPROVED" | "REJECTED" | "DRAFT"
+  status String @default("APPROVED")
+
+  viewCount Int @default(0)
+  saveCount Int @default(0)
+
+  saves        MarketplaceSave[]
+  applications MarketplaceApplication[]
+  reviews      MarketplaceReview[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([status])
+  @@index([isFeatured])
+  @@index([registrationDeadline])
+  @@index([state])
+}
+
+model MarketplaceSave {
+  id      String           @id @default(cuid())
+  userId  String
+  eventId String
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event   MarketplaceEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, eventId])
+  @@index([userId])
+  @@index([eventId])
+}
+
+model MarketplaceApplication {
+  id      String           @id @default(cuid())
+  userId  String
+  eventId String
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event   MarketplaceEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  // "INTERESTED" | "APPLIED" | "REGISTERED" | "ATTENDED" | "WITHDREW"
+  status    String   @default("INTERESTED")
+  notes     String?
+  appliedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, eventId])
+  @@index([userId])
+  @@index([eventId])
+}
+
+model MarketplaceReview {
+  id      String           @id @default(cuid())
+  userId  String
+  eventId String
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event   MarketplaceEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  rating       Int    // 1-5
+  review       String
+  helpfulVotes Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, eventId])
+  @@index([eventId])
+}
+
+// ===== Notifications =====
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // "friend_request" | "friend_accepted" | "message" | "achievement_verified" | "exam_reminder" | "streak_warning" | "marketplace_deadline" | "group_announcement"
+  type   String
+  title  String
+  body   String
+  link   String?  // URL to navigate to on click
+  isRead Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
