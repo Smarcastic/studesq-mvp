@@ -1,33 +1,28 @@
-# Studesq MVP 🚀
+# StudesQ — imported application source
 
-Studesq is a **trust-first student platform** designed to act as a long-term digital hub for students.
+This branch contains the Claude-built Next.js 16 application supplied by the project owner. Read [IMPORT_REVIEW.md](IMPORT_REVIEW.md) for observed features, known gaps, and validation results, and [CODEX_BUILD_PROMPT.md](CODEX_BUILD_PROMPT.md) for the implementation handoff.
 
-### 🌱 What this MVP includes
-- Student profiles
-- Achievements & certifications
-- Timelines (academics + extracurriculars)
-- Opportunities & applications
-- Authentication (mock + extensible)
-- Clean, scalable architecture
+The older implementation remains on `main`. This branch is not a production release.
 
-### 🛠 Tech Stack
-- Next.js (App Router)
-- TypeScript
-- Tailwind CSS
-- Prisma (SQLite for MVP)
-- Vitest (testing)
+## Local preparation
 
-### 📦 Project Structure
-- `app/` – routes & pages
-- `components/` – reusable UI & feature components
-- `lib/` – core logic & helpers
-- `prisma/` – schema & seed
-- `tests/` – smoke tests
-- `types/` – shared TypeScript types
+Use a supported Node version (Node 22 LTS is a suitable starting point). Copy `.env.example` to `.env` and generate a fresh AUTH_SECRET. Keep local secrets out of Git.
 
-### 🚧 Status
-This is an **early MVP** focused on validating structure, UX flow, and future scalability.
+```bash
+npm ci
+npx prisma generate
+npx prisma db push
+npm run dev
+```
 
----
+Use a fresh disposable local database for development. The current adapter uses root `dev.db`; see the discrepancy with DATABASE.md in the import review. Sign up through `/register` for a fresh test account. Google OAuth is optional and requires configuration.
 
-Built with focus on clarity, safety, and long-term growth.
+## Checks
+
+```bash
+npx tsc --noEmit
+npm run lint
+npm run build
+```
+
+Type checking passed during import; lint did not. Full runtime validation and production hosting remain work for the next implementation phase. Generated Prisma files, local databases, uploads, and build/dependency directories are intentionally excluded from Git.

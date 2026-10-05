@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://studesq.com/sitemap.xml
