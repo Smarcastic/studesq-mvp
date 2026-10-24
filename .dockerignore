@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.claude
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+public/uploads
+*.tsbuildinfo
+src/generated/prisma
+nul
